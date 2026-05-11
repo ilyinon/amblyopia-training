@@ -25,11 +25,6 @@ jobs:
 
           - os: macos-latest
             goos: darwin
-            goarch: amd64
-            binary: amblyopia-trainer-macos-intel
-
-          - os: macos-latest
-            goos: darwin
             goarch: arm64
             binary: amblyopia-trainer-macos-arm64
 
