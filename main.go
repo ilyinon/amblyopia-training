@@ -107,8 +107,10 @@ func (g *Game) randomTarget() {
 	cols := screenWidth / g.cellSize
 	rows := screenHeight / g.cellSize
 
-	g.targetX = rand.Intn(cols-2) + 1
-	g.targetY = rand.Intn(rows-2) + 1
+	size := targetSize(g)
+
+	g.targetX = rand.Intn(cols-size-2) + 1
+	g.targetY = rand.Intn(rows-size-2) + 1
 
 	g.targetStart = time.Now()
 	g.hovered = false
@@ -219,7 +221,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 
 		msg := fmt.Sprintf(
-			"Ты молодец!\n\nОчки: %d\nПопадания: %d\nПромахи: %d\nТочность: %.0f%%\n\nНажми любую клавишу",
+			"Ты молодец!\n\nОчки: %d\nПопадания: %d\nПромахи: %d\nТочность: %.0f%%\n\nНажми Esc чтобы выйти",
 			score,
 			g.hits,
 			g.misses,
@@ -297,29 +299,32 @@ func drawCursorCell(screen *ebiten.Image, g *Game, cx, cy int, invert bool) {
 	screen.DrawImage(img, op)
 }
 
+func targetSize(g *Game) int {
+
+	switch {
+
+	// крупные клетки
+	case g.cellSize >= 20:
+		return 2
+
+	// средние
+	case g.cellSize >= 10:
+		return 3
+
+	// мелкие
+	default:
+		return 4
+	}
+}
+
 func isTargetCell(g *Game, cx, cy int) bool {
 
-	// центр 2x2
-	if cx >= g.targetX && cx <= g.targetX+1 &&
-		cy >= g.targetY && cy <= g.targetY+1 {
-		return true
-	}
+	size := targetSize(g)
 
-	// горизонталь
-	if cy == g.targetY || cy == g.targetY+1 {
-		if abs(cx-g.targetX) <= 2 {
-			return true
-		}
-	}
-
-	// вертикаль
-	if cx == g.targetX || cx == g.targetX+1 {
-		if abs(cy-g.targetY) <= 2 {
-			return true
-		}
-	}
-
-	return false
+	return cx >= g.targetX &&
+		cx < g.targetX+size &&
+		cy >= g.targetY &&
+		cy < g.targetY+size
 }
 
 func abs(v int) int {
@@ -372,7 +377,7 @@ func main() {
 		audioCtx:     ctx,
 		beep:         player,
 		fontFace:     face,
-		sessionLimit: 1 * time.Minute,
+		sessionLimit: 3 * time.Minute,
 		sessionStart: time.Now(),
 	}
 
