@@ -23,6 +23,10 @@ const (
 	screenWidth  = 800
 	screenHeight = 600
 	sampleRate   = 44100
+
+	hitsPerLevel        = 5
+	missesBeforeRestart = 3
+	sessionDuration     = 3 * time.Minute
 )
 
 //go:embed assets/beep.wav
@@ -49,10 +53,11 @@ var levels = []Level{
 }
 
 type Game struct {
-	level     int
-	hits      int
-	levelHits int
-	misses    int
+	level       int
+	hits        int
+	levelHits   int
+	misses      int
+	levelMisses int
 
 	cellSize     int
 	switchPeriod time.Duration
@@ -72,6 +77,7 @@ type Game struct {
 	whiteCell *ebiten.Image
 	blackCell *ebiten.Image
 
+	rng      *rand.Rand
 	audioCtx *audio.Context
 	beep     *audio.Player
 
@@ -84,6 +90,7 @@ type Game struct {
 func (g *Game) setLevel(level int) {
 	g.level = level
 	g.levelHits = 0
+	g.levelMisses = 0
 
 	cfg := levels[level-1]
 
@@ -104,19 +111,27 @@ func (g *Game) initCells() {
 }
 
 func (g *Game) randomTarget() {
+	if g.rng == nil {
+		g.rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+	}
+
 	cols := screenWidth / g.cellSize
 	rows := screenHeight / g.cellSize
 
 	size := targetSize(g)
 
-	g.targetX = rand.Intn(cols-size-2) + 1
-	g.targetY = rand.Intn(rows-size-2) + 1
+	g.targetX = g.rng.Intn(cols-size-2) + 1
+	g.targetY = g.rng.Intn(rows-size-2) + 1
 
 	g.targetStart = time.Now()
 	g.hovered = false
 }
 
 func (g *Game) playBeep() {
+	if g.beep == nil {
+		return
+	}
+
 	g.beep.Rewind()
 	g.beep.Play()
 }
@@ -145,16 +160,16 @@ func (g *Game) Update() error {
 		return ebiten.Termination
 	}
 
-	if time.Since(g.sessionStart) > g.sessionLimit {
-		g.done = true
-		return nil
-	}
-
 	if g.done {
 		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) ||
 			len(inpututil.AppendJustPressedKeys(nil)) > 0 {
 			return ebiten.Termination
 		}
+		return nil
+	}
+
+	if time.Since(g.sessionStart) > g.sessionLimit {
+		g.done = true
 		return nil
 	}
 
@@ -167,10 +182,12 @@ func (g *Game) Update() error {
 	// таймер цели
 	if time.Since(g.targetStart) > g.targetLimit {
 		g.misses++
-		g.randomTarget()
+		g.levelMisses++
 
-		if g.misses >= 3 {
+		if g.levelMisses >= missesBeforeRestart {
 			g.setLevel(g.level)
+		} else {
+			g.randomTarget()
 		}
 	}
 
@@ -189,7 +206,7 @@ func (g *Game) Update() error {
 		g.hits++
 		g.levelHits++
 
-		if g.levelHits >= 5 {
+		if g.levelHits >= hitsPerLevel {
 
 			if g.level == len(levels) {
 				g.done = true
@@ -221,7 +238,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 
 		msg := fmt.Sprintf(
-			"Ты молодец!\n\nОчки: %d\nПопадания: %d\nПромахи: %d\nТочность: %.0f%%\n\nНажми Esc чтобы выйти",
+			"Ты молодец!\n\nОчки: %d\nПопадания: %d\nПромахи: %d\nТочность: %.0f%%\n\nНажми любую клавишу или кликни мышью, чтобы выйти",
 			score,
 			g.hits,
 			g.misses,
@@ -278,6 +295,10 @@ func drawCursor(screen *ebiten.Image, g *Game) {
 func drawCursorCell(screen *ebiten.Image, g *Game, cx, cy int, invert bool) {
 	size := g.cellSize
 
+	if cx < 0 || cy < 0 || cx*size >= screenWidth || cy*size >= screenHeight {
+		return
+	}
+
 	white := ((cx + cy) % 2) == 0
 
 	if g.flash {
@@ -327,21 +348,11 @@ func isTargetCell(g *Game, cx, cy int) bool {
 		cy < g.targetY+size
 }
 
-func abs(v int) int {
-	if v < 0 {
-		return -v
-	}
-
-	return v
-}
-
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return screenWidth, screenHeight
 }
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
-
 	// звук
 	ctx := audio.NewContext(sampleRate)
 
@@ -377,7 +388,8 @@ func main() {
 		audioCtx:     ctx,
 		beep:         player,
 		fontFace:     face,
-		sessionLimit: 3 * time.Minute,
+		rng:          rand.New(rand.NewSource(time.Now().UnixNano())),
+		sessionLimit: sessionDuration,
 		sessionStart: time.Now(),
 	}
 
